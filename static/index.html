@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Checker Agent</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <h1>AI数据审查助手</h1>
+      <p>AI将分析上传的图片，用以比对赛事API</p>
+    </header>
+
+    <main class="main">
+      <section class="card">
+        <h2>1) 图片上传</h2>
+        <p class="sub">一次可选择 1-10 张图片。</p>
+
+        <div id="dropzone" class="dropzone" role="button" tabindex="0">
+          <input id="fileInput" type="file" accept="image/*" multiple hidden />
+          <div class="dz-inner">
+            <div class="dz-icon">📷</div>
+            <div>
+              <div class="dz-title">拖拽图片到此处，或点击选择文件</div>
+              <div class="dz-hint">支持 JPG / PNG，最多 10 张</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="fileSummary" class="file-summary hidden">
+          <span id="fileCount">0</span> 张图片已选择
+          <button id="clearFilesBtn" class="link-btn" type="button">清空</button>
+        </div>
+
+        <div id="previewGrid" class="preview-grid"></div>
+      </section>
+
+      <section class="card">
+        <h2>2) 参数与提交</h2>
+        <form id="uploadForm" class="form">
+          <div class="form-row">
+            <label for="gameId">Game ID</label>
+            <input id="gameId" name="game_id" type="text" placeholder="对局ID" required />
+          </div>
+          <div class="form-row">
+            <label for="stage">Stage</label>
+            <input id="stage" name="stage" type="number" min="1" step="1" placeholder="赛事阶段" required />
+          </div>
+          <div class="form-actions">
+            <button id="submitBtn" type="submit" class="primary-btn">提交并校验</button>
+          </div>
+          <!-- <p class="form-hint">注意：上传前将自动把文件名重命名为 <code>{game_id}_rank_{number}</code>。</p> -->
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="flex-header">
+          <h2>AI审查结果</h2>
+          <button id="copyJsonBtn" class="secondary-btn" type="button">复制 JSON</button>
+        </div>
+        <div id="resultArea" class="result-area empty">
+          <div class="empty-tip">提交后将在此处展示结果</div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Powered by FastAPI and LangGraph</span>
+    </footer>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <div id="backdrop" class="backdrop hidden">
+    <div class="spinner"></div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+    // 解决 iOS 里点击 dropzone 触发文件选择
+    document.getElementById('dropzone').addEventListener('click', () => {
+      document.getElementById('fileInput').click();
+    });
+  </script>
+</body>
+</html>
+
+
