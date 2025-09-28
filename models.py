@@ -14,6 +14,15 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import declarative_base
+from dotenv import load_dotenv
+import os
+
+
+load_dotenv()
+
+db_url=os.getenv("DATABASE_URL")
+db_username = os.getenv("DATABASE_USERNAME")
+db_password = os.getenv("DATABASE_PASSWORD")
 
 Base = declarative_base()
 
@@ -940,7 +949,7 @@ class OCR(Base):
 #     future=True,
 # )
 engine = create_engine(
-    "mysql+pymysql://vspnjovi:Pubgm2021@rm-uf6f326265lft8bwrdo.mysql.rds.aliyuncs.com:3306/xiangchangpaidui_s7",
+    f"mysql+pymysql://{db_username}:{db_password}@{db_url}",
     echo=False,
     future=True,
     # pool_pre_ping=True,
