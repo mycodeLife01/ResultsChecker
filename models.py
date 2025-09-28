@@ -943,11 +943,6 @@ class OCR(Base):
 # Create all tables in database
 # -----------------------------
 
-# engine = create_engine(
-#     "mysql+pymysql://vspnjovi:Pubgm2021@rm-uf6f326265lft8bwrdo.mysql.rds.aliyuncs.com:3306/xiangchangpaidui_s7",
-#     echo=False,
-#     future=True,
-# )
 engine = create_engine(
     f"mysql+pymysql://{db_username}:{db_password}@{db_url}",
     echo=False,
