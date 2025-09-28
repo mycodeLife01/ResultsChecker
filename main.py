@@ -8,7 +8,8 @@ import uvicorn
 
 app = FastAPI()
 
-logger.add("./logs/app.log")
+# disabled, all logs should be managed by systemd
+# logger.add("./logs/app.log")
 
 
 # Serve static files and homepage
@@ -53,5 +54,6 @@ async def upload(
     return {"error_list": error_list}
 
 
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8008, reload=True)
+# only enabled when developing
+# if __name__ == "__main__":
+#     uvicorn.run("main:app", host="0.0.0.0", port=8008, reload=False)
