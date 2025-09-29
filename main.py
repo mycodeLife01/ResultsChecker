@@ -5,11 +5,21 @@ from fastapi.responses import FileResponse
 from graph import check
 from loguru import logger
 import uvicorn
+import sys
 
 app = FastAPI()
 
 # disabled, all logs should be managed by systemd
-# logger.add("./logs/app.log")
+logger.configure(
+    handlers=[
+        {
+            "sink": sys.stderr,
+            "level": "DEBUG",  # 根据需要设置日志级别
+            "backtrace": True,
+            "diagnose": True,
+        }
+    ]
+)
 
 
 # Serve static files and homepage
