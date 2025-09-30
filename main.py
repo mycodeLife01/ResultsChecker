@@ -1,3 +1,4 @@
+import os
 import shutil
 from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
@@ -43,6 +44,14 @@ async def upload(
     try:
         for file in files:
             file_location = f"./images/{file.filename}"
+            without_ext, _ = os.path.splitext(file_location)
+            potential_path = [
+                f"{without_ext}.jpg",
+                f"{without_ext}.jpeg",
+                f"{without_ext}.png",
+            ]
+            if any(os.path.exists(path) for path in potential_path):
+                continue
             with open(file_location, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
     except Exception as e:

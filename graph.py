@@ -314,7 +314,9 @@ def compare(state: State):
                 )
             )
             api_team_data = next(
-                team for team in api_result if team["team_name"] == team_result.team_name
+                team
+                for team in api_result
+                if team["team_name"] == team_result.team_name
             )
             if team_result.ranking != api_team_data["ingame_rank"]:
                 error_list.errors.append(
@@ -369,8 +371,7 @@ graph = graph_builder.compile()
 # result = graph.invoke({"game_id": "1", "stage": 6})
 # print(result["error_list"])
 
+
 def check(game_id: str, stage: int):
     result = graph.invoke({"game_id": game_id, "stage": stage})
     return result["error_list"]
-
-
