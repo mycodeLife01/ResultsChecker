@@ -353,6 +353,7 @@ def compare(state: State):
                         correct_data=team_result.total_elims,
                     )
                 )
+    print("error_list:", error_list)
     return {"error_list": error_list}
 
 

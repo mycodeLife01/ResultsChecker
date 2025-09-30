@@ -46,7 +46,7 @@ async def upload(
             with open(file_location, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
     except Exception as e:
-        logger.error(f"error handling file upload: {e}")
+        logger.exception(f"error handling file upload: {e}")
         raise HTTPException(
             status_code=500,
             detail="error handling file upload",
@@ -55,7 +55,7 @@ async def upload(
     try:
         error_list = check(game_id, stage)
     except Exception as e:
-        logger.error(f"error checking game result: {e}")
+        logger.exception(f"error checking game result: {e}")
         raise HTTPException(
             status_code=500,
             detail="error checking game result",
