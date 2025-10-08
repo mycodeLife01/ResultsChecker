@@ -10,6 +10,10 @@ import requests
 from sqlalchemy import func
 from models import MatchRanking, engine
 from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy import case
+from PIL import Image
+import io
+
 
 load_dotenv()
 
@@ -42,7 +46,8 @@ IMAGE_PARSING_PROMPT = """
 3.1 队伍编号，即队伍结算框左上角，是一个带背景颜色的类方形区域，里面是一个数字
 3.2 排名，即队伍结算框的左上角的上方，是一个数字，它出现在3.1所述“队伍结算框”的正上方，是一个不带背景的灰色数字
 4. 在提取信息时，你需要严格按照第3点所述的规则，提取队伍的排名信息
-5. 你需要在结束后，基于注意事项，重新核查信息是否正确和符合规范
+5. 一个队伍结算框在一张图片中可能被截断，因此，当你发现队伍结算框中的选手少于4人时，检查其他图片中是否包含此队伍的信息
+6. 你需要在结束后，基于注意事项，重新核查信息是否正确和符合规范
 """
 
 
@@ -67,6 +72,10 @@ class TeamResult(BaseModel):
     ranking: int = Field(description="The ranking of the team in the game")
     total_elims: int = Field(
         description="The total number of eliminations the team has, equals the sum of the eliminations of all players"
+    )
+    match_pts: int = Field(
+        description="total pts including elims and ranking score of the match, always keep it unset",
+        default=0,
     )
     players: list[PlayerResult] = Field(
         description="The list of player results in the team"
@@ -109,99 +118,198 @@ llm_generating_game_result = llm.with_structured_output(GameResult)
 
 
 # tool functions
-def get_tiebreak_stats(session: Session, team_name: str, stage: int) -> dict:
-    """
-    获取比较同分情况所需的队伍数据，规则如下：
-    在所有回合结束后，若出现平分，将根据以下顺序决定排名。
+# def get_tiebreak_stats(session: Session, team_name: str, stage: int) -> dict:
+#     """
+#     获取比较同分情况所需的队伍数据，规则如下：
+#     在所有回合结束后，若出现平分，将根据以下顺序决定排名。
 
-    1) 比较同分队伍的总获胜数
-    2) 比较同分队伍的当前阶段的总淘汰数
-    3) 比较同分队伍的当前阶段的单局最高积分
-    4) 比较同分队伍的当前阶段的单局最高淘汰
-    5) 比较同分队伍最后一场比赛的总积分
-    6) 比较同分队伍最后一场比赛的总淘汰数
-    7) 比较同分队伍最后一场比赛的生存排名
+#     1) 比较同分队伍的总获胜数
+#     2) 比较同分队伍的当前阶段的总淘汰数
+#     3) 比较同分队伍的当前阶段的单局最高积分
+#     4) 比较同分队伍的当前阶段的单局最高淘汰
+#     5) 比较同分队伍最后一场比赛的总积分
+#     6) 比较同分队伍最后一场比赛的总淘汰数
+#     7) 比较同分队伍最后一场比赛的生存排名
 
+#     """
+#     # session = SessionLocal()
+#     try:
+#         if not team_name or stage is None:
+#             raise ValueError("team_name 和 stage 不能为空")
+#         # 获取队伍的胜场数(吃鸡)
+#         wwcd_count = (
+#             session.query(MatchRanking)
+#             .filter(
+#                 MatchRanking.team_name == team_name,
+#                 MatchRanking.stage == stage,
+#                 MatchRanking.ingame_rank == 1,
+#             )
+#             .count()
+#         )
+#         # 获取队伍的当前阶段的总淘汰数
+#         # stage_total_kill = (
+#         #     session.query(StageRanking.total_kill_pts)
+#         #     .filter(StageRanking.team_name == team_name, StageRanking.stage == stage)
+#         #     .scalar()
+#         # )
+#         stage_total_kill = (
+#             session.query(
+#                 func.coalesce(func.sum(MatchRanking.kill_pts).label("stage_kill"), 0)
+#             )
+#             .filter(MatchRanking.team_name == team_name, MatchRanking.stage == stage)
+#             .scalar()
+#         )
+#         # 获取队伍的当前阶段的单局最高积分
+#         stage_max_single_match_pts = (
+#             session.query(MatchRanking.total_pts)
+#             .filter(MatchRanking.team_name == team_name, MatchRanking.stage == stage)
+#             .order_by(MatchRanking.total_pts.desc())
+#             .limit(1)
+#             .scalar()
+#         )
+#         # 获取队伍的当前阶段的单局最高淘汰
+#         stage_max_single_match_kill = (
+#             session.query(MatchRanking.kill_pts)
+#             .filter(MatchRanking.team_name == team_name, MatchRanking.stage == stage)
+#             .order_by(MatchRanking.kill_pts.desc())
+#             .limit(1)
+#             .scalar()
+#         )
+#         # 获取队伍的最后一场比赛的总积分
+#         last_match_total_pts = (
+#             session.query(MatchRanking.total_pts)
+#             .filter(MatchRanking.team_name == team_name, MatchRanking.stage == stage)
+#             .order_by(MatchRanking.created_at.desc())
+#             .limit(1)
+#             .scalar()
+#         )
+#         # 获取队伍的最后一场比赛的总淘汰数
+#         last_match_total_kill = (
+#             session.query(MatchRanking.kill_pts)
+#             .filter(MatchRanking.team_name == team_name, MatchRanking.stage == stage)
+#             .order_by(MatchRanking.created_at.desc())
+#             .limit(1)
+#             .scalar()
+#         )
+#         # 获取队伍的最后一场比赛的生存排名
+#         last_match_place_pts = (
+#             session.query(MatchRanking.place_pts)
+#             .filter(MatchRanking.team_name == team_name, MatchRanking.stage == stage)
+#             .order_by(MatchRanking.created_at.desc())
+#             .limit(1)
+#             .scalar()
+#         )
+#         return {
+#             "wwcd_count": wwcd_count or 0,
+#             "stage_total_kill": stage_total_kill or 0,
+#             "stage_max_single_match_pts": stage_max_single_match_pts or 0,
+#             "stage_max_single_match_kill": stage_max_single_match_kill or 0,
+#             "last_match_total_pts": last_match_total_pts or 0,
+#             "last_match_total_kill": last_match_total_kill or 0,
+#             "last_match_place_pts": last_match_place_pts or 0,
+#         }
+#     except Exception as e:
+#         print(f"获取同分队伍数据失败: {e}")
+#         return {}
+
+
+def get_all_teams_tiebreak_stats(
+    session: Session, team_names: list[str], stage: int
+) -> dict:
     """
-    # session = SessionLocal()
-    try:
-        if not team_name or stage is None:
-            raise ValueError("team_name 和 stage 不能为空")
-        # 获取队伍的胜场数(吃鸡)
-        wwcd_count = (
-            session.query(MatchRanking)
-            .filter(
-                MatchRanking.team_name == team_name,
-                MatchRanking.stage == stage,
-                MatchRanking.ingame_rank == 1,
-            )
-            .count()
-        )
-        # 获取队伍的当前阶段的总淘汰数
-        # stage_total_kill = (
-        #     session.query(StageRanking.total_kill_pts)
-        #     .filter(StageRanking.team_name == team_name, StageRanking.stage == stage)
-        #     .scalar()
-        # )
-        stage_total_kill = (
-            session.query(
-                func.coalesce(func.sum(MatchRanking.kill_pts).label("stage_kill"), 0)
-            )
-            .filter(MatchRanking.team_name == team_name, MatchRanking.stage == stage)
-            .scalar()
-        )
-        # 获取队伍的当前阶段的单局最高积分
-        stage_max_single_match_pts = (
-            session.query(MatchRanking.total_pts)
-            .filter(MatchRanking.team_name == team_name, MatchRanking.stage == stage)
-            .order_by(MatchRanking.total_pts.desc())
-            .limit(1)
-            .scalar()
-        )
-        # 获取队伍的当前阶段的单局最高淘汰
-        stage_max_single_match_kill = (
-            session.query(MatchRanking.kill_pts)
-            .filter(MatchRanking.team_name == team_name, MatchRanking.stage == stage)
-            .order_by(MatchRanking.kill_pts.desc())
-            .limit(1)
-            .scalar()
-        )
-        # 获取队伍的最后一场比赛的总积分
-        last_match_total_pts = (
-            session.query(MatchRanking.total_pts)
-            .filter(MatchRanking.team_name == team_name, MatchRanking.stage == stage)
-            .order_by(MatchRanking.created_at.desc())
-            .limit(1)
-            .scalar()
-        )
-        # 获取队伍的最后一场比赛的总淘汰数
-        last_match_total_kill = (
-            session.query(MatchRanking.kill_pts)
-            .filter(MatchRanking.team_name == team_name, MatchRanking.stage == stage)
-            .order_by(MatchRanking.created_at.desc())
-            .limit(1)
-            .scalar()
-        )
-        # 获取队伍的最后一场比赛的生存排名
-        last_match_place_pts = (
-            session.query(MatchRanking.place_pts)
-            .filter(MatchRanking.team_name == team_name, MatchRanking.stage == stage)
-            .order_by(MatchRanking.created_at.desc())
-            .limit(1)
-            .scalar()
-        )
-        return {
-            "wwcd_count": wwcd_count or 0,
-            "stage_total_kill": stage_total_kill or 0,
-            "stage_max_single_match_pts": stage_max_single_match_pts or 0,
-            "stage_max_single_match_kill": stage_max_single_match_kill or 0,
-            "last_match_total_pts": last_match_total_pts or 0,
-            "last_match_total_kill": last_match_total_kill or 0,
-            "last_match_place_pts": last_match_place_pts or 0,
-        }
-    except Exception as e:
-        print(f"获取同分队伍数据失败: {e}")
+    [高性能版本]
+    一次性批量获取所有指定队伍的 tiebreak 数据。
+    通过两次数据库查询完成所有操作，避免了 N+1 问题。
+    """
+    if not team_names:
         return {}
+
+    # --- 第一步：一次性查询所有队伍的聚合数据 ---
+
+    # 使用 case 语句来计算 wwcd_count (ingame_rank=1 的场次数)
+    wwcd_case = case((MatchRanking.ingame_rank == 1, 1), else_=0)
+
+    # 一个查询，按 team_name 分组，计算所有需要的聚合统计数据
+    # 使用 func.coalesce 将可能为 None 的结果转换为 0
+    aggregate_stats_query = (
+        session.query(
+            MatchRanking.team_name,
+            func.coalesce(func.sum(wwcd_case), 0).label("wwcd_count"),
+            func.coalesce(func.sum(MatchRanking.kill_pts), 0).label("stage_total_kill"),
+            func.coalesce(func.max(MatchRanking.total_pts), 0).label(
+                "stage_max_single_match_pts"
+            ),
+            func.coalesce(func.max(MatchRanking.kill_pts), 0).label(
+                "stage_max_single_match_kill"
+            ),
+        )
+        .filter(MatchRanking.stage == stage, MatchRanking.team_name.in_(team_names))
+        .group_by(MatchRanking.team_name)
+        .all()
+    )
+
+    # --- 第二步：一次性查询所有队伍的最后一场比赛数据 ---
+
+    # 使用窗口函数 row_number() 为每个队伍的比赛按时间倒序排名
+    # 'rn' = 1 的就是最新的一场比赛
+    subquery = (
+        session.query(
+            MatchRanking.team_name,
+            MatchRanking.total_pts,
+            MatchRanking.kill_pts,
+            MatchRanking.place_pts,
+            func.row_number()
+            .over(
+                partition_by=MatchRanking.team_name,
+                order_by=MatchRanking.created_at.desc(),
+            )
+            .label("rn"),
+        )
+        .filter(MatchRanking.stage == stage, MatchRanking.team_name.in_(team_names))
+        .subquery()
+    )
+
+    # 从子查询中筛选出 rn=1 的记录，即每支队伍的最后一场比赛
+    last_match_stats_query = session.query(subquery).filter(subquery.c.rn == 1).all()
+
+    # --- 第三步：整合数据 ---
+
+    # 初始化一个默认的结果字典，确保所有请求的队伍都有返回值
+    final_stats = {
+        team_name: {
+            "wwcd_count": 0,
+            "stage_total_kill": 0,
+            "stage_max_single_match_pts": 0,
+            "stage_max_single_match_kill": 0,
+            "last_match_total_pts": 0,
+            "last_match_total_kill": 0,
+            "last_match_place_pts": 0,
+        }
+        for team_name in team_names
+    }
+
+    # 合并聚合数据
+    for row in aggregate_stats_query:
+        final_stats[row.team_name].update(
+            {
+                "wwcd_count": row.wwcd_count,
+                "stage_total_kill": row.stage_total_kill,
+                "stage_max_single_match_pts": row.stage_max_single_match_pts,
+                "stage_max_single_match_kill": row.stage_max_single_match_kill,
+            }
+        )
+
+    # 合并最后一场比赛数据
+    for row in last_match_stats_query:
+        final_stats[row.team_name].update(
+            {
+                "last_match_total_pts": row.total_pts,
+                "last_match_total_kill": row.kill_pts,
+                "last_match_place_pts": row.place_pts,
+            }
+        )
+
+    return final_stats
 
 
 # Methods for the nodes of the graph
@@ -232,8 +340,26 @@ def parse_game_result_image(state: State):
     # 为每张图片添加 image 内容
     for image_file in image_files:
         with open(image_file, "rb") as f:
-            image_content = f.read()
-            image_data = base64.b64encode(image_content).decode("utf-8")
+            # image_content = f.read()
+            # 1. 打开图片
+            img = Image.open(image_file)
+
+            # 可选：如果图片是 RGBA (带透明通道)，转换为 RGB
+            if img.mode == "RGBA":
+                img = img.convert("RGB")
+
+            # 2. 压缩图片：调整尺寸和质量
+            #    你可以根据需要调整这里的参数
+            #    - resize: 将图片最长边限制在 1024 像素，保持宽高比
+            #    - quality: JPEG 压缩质量，85 是一个很好的平衡点
+            img.thumbnail((1024, 1024))  # 使用 thumbnail 来保持宽高比缩放
+
+            # 3. 将压缩后的图片保存在内存中
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=85)
+            compressed_image_content = buffer.getvalue()
+            image_data = base64.b64encode(compressed_image_content).decode("utf-8")
+
             content.append(
                 {
                     "type": "image",
@@ -251,6 +377,7 @@ def parse_game_result_image(state: State):
             }
         ]
     )
+    # print("response:", response)
     return {
         "messages": [
             HumanMessage(content=IMAGE_PARSING_PROMPT),
@@ -271,13 +398,20 @@ def compare(state: State):
     # 获取API数据
     api_result = requests.get("http://139.196.72.70:8111/match_ranking").json()["data"]
 
+    # 一次性获取所有队伍的tiebreak数据
+    session = SessionLocal()
+    tiebreak_stats = get_all_teams_tiebreak_stats(
+        session,
+        [team_result.team_name for team_result in game_result.teams],
+        state["stage"],
+    )
+    session.close()
+
     # 比较
     for index, team_result in enumerate(game_result.teams):
         session = SessionLocal()
         team_result.final_ranking = index + 1
-        team_result.tiebreak_stats = get_tiebreak_stats(
-            session, team_result.team_name, state["stage"]
-        )
+        team_result.tiebreak_stats = tiebreak_stats[team_result.team_name]
         session.close()
 
     game_result.teams.sort(
@@ -295,7 +429,14 @@ def compare(state: State):
         reverse=True,
     )
 
-    # print(game_result)
+    for index, team_result in enumerate(game_result.teams):
+        session = SessionLocal()
+        team_result.final_ranking = index + 1
+        team_result.match_pts = team_result.total_elims + to_ranking_score.get(
+            team_result.ranking, 0
+        )
+
+    print(game_result)
 
     error_list = ErrorList(errors=[])
     for index, team_result in enumerate(game_result.teams):
